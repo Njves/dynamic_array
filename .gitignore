@@ -1,0 +1,4 @@
+build/
+carray.cp310-win_amd64.pyd
+carray.c
+dynamic_array_class.py
