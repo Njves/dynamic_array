@@ -125,7 +125,8 @@ cdef class array:
     # Аналог метода __init__
     def __cinit__(self, str typecode, list init):
         self.length = 0
-
+        if typecode != 'd' and typecode != 'i':
+            raise TypeError("Код может быть либо d или i")
         cdef int mtypecode = char_typecode_to_int(typecode)
         self.descr = &descriptors[mtypecode]
 
@@ -212,7 +213,6 @@ cdef class array:
     def insert(self, int index, object value):
         if index < 0 or index > self.length:
             index = normalize_index(index, self.length)
-
         cdef char* temp = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
         cdef int j = 0
         for j in range(self.length):
@@ -290,14 +290,32 @@ cdef class array:
 
     # разворачивает массив
     def __reversed__(self):
-        cdef char * t = <char *> PyMem_Malloc(self.length * self.descr.itemsize)
+        cdef i = 0
         for i in range(self.length):
-            t[i] = self.descr.getitem(self, self.length - i - 1)
-        return t
+            yield self.descr.getitem(self, self.length - i - 1)
 
     def __eq__(self, other):
         if isinstance(other, py_array.array):
-            return self.descr.typecode == b''.join(other.typecode) and list(self) == list(other)
+            if other.typecode.encode('utf-8') == self.descr.typecode:
+                if list(self) == list(other):
+                    return True
+        return False
+
+    # создает строчнео представление массива
+    def __str__(self):
+        string = "["
+        cdef i = 0
+        for i in range(self.length):
+            if i == self.length - 1:
+                string += str(self.descr.getitem(self, i))
+                continue
+            string += str(self.descr.getitem(self, i)) + ", "
+        string += "]"
+        return string
+
+    # печатает массив
+    def __repr__(self):
+        return str(self)
 
     # возвращает длину массива
     def __len__(self):
