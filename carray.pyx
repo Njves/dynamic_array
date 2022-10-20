@@ -12,6 +12,8 @@ from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free
 from cpython.float cimport PyFloat_FromDouble, PyFloat_AsDouble
 from cpython.long cimport PyLong_FromLong, PyLong_AsLong
 import array as py_array
+import math
+
 
 # Так как хотим использовать массив для разных типов, указывая только
 # код типа без дополнительных замарочек, то используем самописный
@@ -111,6 +113,12 @@ cdef int normalize_index(int index, int length):
         return index
     raise IndexError()
 
+def get_required_memory(size_t length):
+    return 2 * length
+
+def is_allocate_memory(size_t length, size_t capacity):
+    return length >= capacity
+
 cdef class array:
     # Класс статического массива.
     # В поле length сохраняем длину массива, а в поле data будем хранить
@@ -121,22 +129,25 @@ cdef class array:
     cdef public size_t length
     cdef char* data
     cdef arraydescr* descr
+    cdef size_t capacity
 
     # Аналог метода __init__
     def __cinit__(self, str typecode, list init):
-        self.length = 0
+        self.length = len(init)
+        self.capacity = get_required_memory(self.length)
         if typecode != 'd' and typecode != 'i':
             raise TypeError("Код может быть либо d или i")
         cdef int mtypecode = char_typecode_to_int(typecode)
         self.descr = &descriptors[mtypecode]
 
         # Выделяем память для массива
-        self.data = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
+        self.data = <char*> PyMem_Malloc(self.capacity * self.descr.itemsize)
         if not self.data:
             raise MemoryError()
         cdef i = 0
         for i in range(len(init)):
-            self.append(init[i])
+            self.__setitem__(i, init[i])
+
 
     # Не забываем освобаждать память. Привязываем это действие к объекту
     # Python. Это позволяет освободить память во время сборки мусора.
@@ -160,8 +171,9 @@ cdef class array:
     def check_index(self, int index):
         return 0 <= index < self.length
 
-    def get_absolute_index(self, index):
+    def get_absolute_index(self, object index):
         return self.length - abs(index)
+
 
     # возвращает элементы по индексу
     def __getitem__(self, object index):
@@ -186,40 +198,34 @@ cdef class array:
         else:
             raise IndexError()
 
+
+
     # добавляет новый элемент в конец массива
     def append(self, object value):
         if isinstance(value, float) and self.descr.typecode == b'i':
             if value % 1 != 0:
                 raise TypeError('Неверный тип должен быть integer')
 
-        cdef char* new_data = <char*> PyMem_Malloc((self.length + 1) * self.descr.itemsize)
-
-        for i in range(self.length):
-            if self.descr.typecode == b'd':
-                (<double *> new_data)[i] = self.descr.getitem(self, i)
-            if self.descr.typecode == b'i':
-                (<long *> new_data)[i] = self.descr.getitem(self, i)
-
-        if self.descr.typecode == b'd':
-            (<double *> new_data)[self.length] = value
-        if self.descr.typecode == b'i':
-            (<long *> new_data)[self.length] = value
-
-        PyMem_Free(self.data)
+        if is_allocate_memory(self.length, self.capacity):
+            self.capacity = get_required_memory(self.length)
+            self.data = <char*> PyMem_Realloc(self.data, self.capacity * self.descr.itemsize)
         self.length += 1
-        self.data = new_data
+        if self.descr.typecode == b'd':
+            (<double *> self.data)[self.length - 1] = value
+        if self.descr.typecode == b'i':
+            (<long *> self.data)[self.length - 1] = value
 
     # добавляет новый элемент массива по индексу
     def insert(self, int index, object value):
         if index < 0 or index > self.length:
             index = normalize_index(index, self.length)
-        cdef char* temp = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
+        cdef char * temp = <char *> PyMem_Malloc(self.length * self.descr.itemsize)
         cdef int j = 0
         for j in range(self.length):
             temp[j] = self.descr.getitem(self, j)
         PyMem_Free(self.data)
         self.length += 1
-        self.data = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
+        self.data = <char *> PyMem_Malloc(self.length * self.descr.itemsize)
         cdef int i = 0
         # После добавления элемента добавляем
         # смещение при взятие данных
@@ -323,7 +329,7 @@ cdef class array:
 
     # определяет занимаемый размер массива в байтах.
     def __sizeof__(self):
-        return self.length * self.descr.itemsize
+        return self.capacity * self.descr.itemsize
 
 
 

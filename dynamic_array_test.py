@@ -257,7 +257,6 @@ class TestArray(unittest.TestCase):
                 my_array = carray.array(typecode, data)
                 self.assertEqual(my_array, expected)
 
-    @timeout_decorator.timeout(10)
     def test_timeout_append(self):  # pylint: disable=R0201
         """Тест времени выполнения метода append"""
         start = time.time()
