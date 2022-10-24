@@ -210,56 +210,47 @@ cdef class array:
             self.capacity = get_required_memory(self.length)
             self.data = <char*> PyMem_Realloc(self.data, self.capacity * self.descr.itemsize)
         self.length += 1
-        if self.descr.typecode == b'd':
-            (<double *> self.data)[self.length - 1] = value
-        if self.descr.typecode == b'i':
-            (<long *> self.data)[self.length - 1] = value
+        self.__setitem__(self.length - 1, value)
 
     # добавляет новый элемент массива по индексу
     def insert(self, int index, object value):
         if index < 0 or index > self.length:
             index = normalize_index(index, self.length)
-        cdef char * temp = <char *> PyMem_Malloc(self.length * self.descr.itemsize)
-        cdef int j = 0
-        for j in range(self.length):
-            temp[j] = self.descr.getitem(self, j)
-        PyMem_Free(self.data)
-        self.length += 1
-        self.data = <char *> PyMem_Malloc(self.length * self.descr.itemsize)
-        cdef int i = 0
-        # После добавления элемента добавляем
-        # смещение при взятие данных
-        cdef counter = 0
-        for i in range(self.length):
-            if i == index:
-                self.__setitem__(i, value)
-            else:
-                self.__setitem__(i, temp[counter])
-                counter += 1
-        PyMem_Free(temp)
+
+        self.length += 1 # 3
+
+        if is_allocate_memory(self.length, self.capacity):
+            self.capacity = get_required_memory(self.length)
+            self.data = <char*> PyMem_Realloc(self.data, self.capacity * self.descr.itemsize)
+
+        cdef int i
+        for i in range(self.length - 1, index, -1):
+            self.__setitem__(i, self.__getitem__(i - 1))
+        self.__setitem__(index, value)
+
+
 
 
     def remove(self, object value):
-        cdef char* temp = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
-        cdef int j
-        for j in range(self.length):
-            temp[j] = self.descr.getitem(self, j)
-        PyMem_Free(self.data)
-        self.data = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
-        cdef int i
-        cdef int counter = 0
-        cdef int is_delete = 0
+        cdef int i = 0
+        cdef removed_index = 0
+        cdef int is_match_value = 0
         for i in range(self.length):
-            if temp[i] == value and is_delete == 0:
-                is_delete = 1
-                continue
-            else:
-                self.__setitem__(counter, temp[i])
-            counter += 1
-        if is_delete == 0:
-            raise ValueError("Такого значения не существует")
+            if self.__getitem__(i) == value:
+                is_match_value = 1
+                index = i
+                break
+        if is_match_value == 0:
+            raise ValueError("Удаляемое значение не найдено")
+
+        cdef int j = index
+        for j in range(index, self.length - 1):
+            self.__setitem__(j, self.__getitem__(j + 1))
         self.length -= 1
-        PyMem_Free(temp)
+        if self.capacity * 0.33 > self.length:
+            self.capacity /= 2
+            self.data = <char *> PyMem_Realloc(self.data, self.capacity * self.descr.itemsize)
+
 
     # удаляет элемент первого вхождения и возвращает его
     def pop(self, int index):
@@ -271,28 +262,19 @@ cdef class array:
         if index >= self.length:
             raise IndexError()
 
-        cdef char* temp = <char*> PyMem_Malloc(self.length * self.descr.itemsize)
-        cdef int j
-        for j in range(self.length):
-            temp[j] = self.descr.getitem(self, j)
-        PyMem_Free(self.data)
-        self.data = <char*> PyMem_Malloc((self.length - 1) * self.descr.itemsize)
-        cdef int i
-        cdef double item = 0
-        cdef counter = 0;
-        for i in range(self.length):
-            if i == index:
-                item = temp[i]
-                continue
-            else:
-                self.__setitem__(counter, temp[i])
-            counter += 1
-        PyMem_Free(temp)
+        cdef double returned_value = self.__getitem__(index)
+        cdef int j = index
+        for j in range(index, self.length - 1):
+            self.__setitem__(j, self.__getitem__(j + 1))
         self.length -= 1
+
+        if self.capacity * 0.33 > self.length:
+            self.capacity /= 2
+            self.data = <char *> PyMem_Realloc(self.data, self.capacity * self.descr.itemsize)
         if self.descr.typecode == b'i':
-            return int(item)
+            return int(returned_value)
         if self.descr.typecode == b'd':
-            return float(item)
+            return float(returned_value)
 
     # разворачивает массив
     def __reversed__(self):
